@@ -1,14 +1,13 @@
-# HyperWafer SpGEMM Communication Simulation
+# HyperWafer: Communication-Aware Sparse Matrix Multiplication on Wafer-Scale Chips
 
-> End-to-end pipeline for **hypergraph-based SpGEMM communication analysis** on wafer-scale style networks, with integration to **Mt-KaHyPar** and **ASTRA-sim**.
+## Project Overview
 
-This repository contains a reproducible pipeline to evaluate the communication
-behavior of sparse matrix–matrix multiplication (SpGEMM) under different
+This repository contains a reproducible pipeline to evaluate the sparse matrix–matrix multiplication (SpGEMM) under different
 task-to-tile mappings on wafer-style 2D meshes.
 
 The code is designed to compare:
 
-- **WAFERSPMM** – a row-block baseline mapping.
+- **WaferSpMM** – a row-block baseline mapping.
 - **HyperWafer** – a hypergraph-based mapping that co-locates tasks sharing
   input rows of \(B\), aiming to reduce communication volume and link hotspots.
 
@@ -22,84 +21,7 @@ The pipeline integrates:
 
 ---
 
-## 1. Overview
-
-### 1.1 High-level flow
-
-The end-to-end pipeline is:
-
-1. **Matrix intake**
-   - Download a sparse matrix \(A\) from the SuiteSparse Matrix Collection using `ssgetpy`.
-   - Construct \(B\). By default we use \(B = A^T\), but you can plug in your own \(B\).
-
-2. **Hypergraph abstraction of Gustavson SpGEMM**
-   - We target Gustavson-style SpGEMM \(C = A 	imes B\) with row-wise expansion.
-   - Tasks: each row \(A_{i,:}\) is a Gustavson row task.
-   - Hypergraph:
-     - Vertices: rows of \(A\) (SpGEMM row tasks).
-     - Hyperedges: columns of \(A\); each hyperedge connects all rows that reuse
-       the same row \(B_{k,:}\).
-     - Hyperedge weights: nnz of \(B_{k,:}\) (indicating communication cost).
-
-3. **Partitioning & mapping onto a 2D mesh**
-   - Baseline (**WAFERSPMM**):
-     - Row-block mapping: partition rows of \(A\) into equal-sized contiguous blocks,
-       assign each block to a tile.
-   - Hypergraph mapping (**HyperWafer**):
-     - Use Mt-KaHyPar to partition the hypergraph into `num_parts` blocks.
-     - Target graph is a 2D mesh (e.g., 8×8 for 64 tiles), encoded in METIS format.
-   - For each mapping, we also compute:
-     - For each row \(B_{k,:}\), the **owner tile** (the tile with the majority of
-       tasks consuming that row).
-
-4. **2D mesh point-to-point oracle**
-   - We model the wafer network as a 2D mesh with dimension-ordered routing
-     (Manhattan paths).
-   - For each row \(B_{k,:}\):
-     - Determine the set of tiles that need this row (based on nonzeros in column \(k\) of \(A\)).
-     - Use the owner tile as the source.
-     - For each destination tile, route a unicast along the 2D mesh and accumulate:
-       - Per-link traffic (bytes)
-       - Total bytes
-       - GB-hop (= bytes × hops)
-   - This oracle is **fully point-to-point**, not a collective abstraction.
-
-5. **MICRO workload generation for AstraSim**
-   - From the oracle, we compute the bytes contributed by each \(B\)-row.
-   - We then batch rows into **MICRO phases**, each represented as an
-     equivalent `ALLGATHER` with `comm_size = phase_bytes`:
-     - Mode `single`: one big ALLGATHER per mapping.
-     - Mode `auto_rows`: choose rows-per-layer so WAFERSPMM has ≤ `micro_max_layers`
-       phases; HyperWafer uses the same rows-per-layer and thus typically has far
-       fewer phases (reflecting reduced cross-tile reuse).
-     - Mode `rows_manual`: use a fixed `rows_per_layer` (e.g., 512) for both mappings.
-   - We emit Chakra-compatible `MICRO` text workloads.
-
-6. **Chakra & ASTRA-sim integration**
-   - Use `chakra_converter` to convert each MICRO text file into ET workloads.
-   - Run `AstraSim_Analytical_Congestion_Aware` on both:
-     - WAFERSPMM workload
-     - HyperWafer workload
-   - Parse per-system communication times and report:
-     - The maximum communication time over all systems (NPUs) for each mapping.
-
-7. **Final comparison**
-   - For both WAFERSPMM and HyperWafer, we report:
-     - Oracle total bytes
-     - Oracle GB-hop
-     - Oracle peak-link load (bytes on the hottest link)
-     - MICRO total bytes
-     - MICRO number of layers
-     - AstraSim communication time
-   - And derived ratios:
-     - Communication volume reduction
-     - GB-hop reduction
-     - Peak-link reduction
-     - Communication time speedup (AstraSim)
-
----
-
-## 2. Repository layout
+## 1. Repository layout
 
 A typical layout of this repository is:
 
@@ -124,9 +46,9 @@ A typical layout of this repository is:
 
 ---
 
-## 3. Requirements
+## 2. Requirements
 
-### 3.1 Python
+### 2.1 Python
 
 - Python 3.9+
 - `numpy`
@@ -139,7 +61,7 @@ Install Python dependencies:
 pip install -r requirements.txt
 ```
 
-### 3.2 External tools (not bundled as Python packages)
+### 2.2 External tools (not bundled as Python packages)
 
 You need the following external tools installed and built:
 
@@ -170,7 +92,7 @@ You need the following external tools installed and built:
 
 ---
 
-## 4. Building ASTRA-sim from the submodule
+## 3. Building ASTRA-sim from the submodule
 
 If you use the vendored ASTRA-sim submodule, you can compile the analytical backend via:
 
@@ -192,9 +114,9 @@ You can override this path at runtime via the `--astrasim-bin` argument.
 
 ---
 
-## 5. Quick start
+## 4. Quick start
 
-### 5.1 Clone and fetch submodules
+### 4.1 Clone and fetch submodules
 
 ```bash
 git clone https://github.com/<your-username>/<your-repo-name>.git
@@ -202,19 +124,19 @@ cd <your-repo-name>
 git submodule update --init --recursive
 ```
 
-### 5.2 Install Python dependencies
+### 4.2 Install Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 5.3 Build ASTRA-sim analytical backend
+### 4.3 Build ASTRA-sim analytical backend
 
 ```bash
 ./scripts/build_astrasim_analytical.sh
 ```
 
-### 5.4 Run the example
+### 4.4 Run the example
 
 Edit `examples/run_dimacs10_delaunay_n19.sh` to set the correct paths for:
 
@@ -273,7 +195,7 @@ Comm-time speedup (AstraSim, WAFERSPMM/HyperWafer): ...
 
 ---
 
-## 6. CLI usage
+## 5. CLI usage
 
 The main entry point is:
 
@@ -327,7 +249,7 @@ Run `python src/spgemm_pipeline.py -h` to see all available options.
 
 ---
 
-## 7. Methodology notes
+## 6. Methodology notes
 
 - **Oracle is fully point-to-point**  
   The 2D mesh oracle counts real point-to-point multi-cast traffic induced by
@@ -346,7 +268,7 @@ Run `python src/spgemm_pipeline.py -h` to see all available options.
 
 ---
 
-## 8. License
+## 7. License
 
 This project is released under the **MIT License**. See [LICENSE](LICENSE) for details.
 
@@ -355,7 +277,7 @@ original license and copyright notices from the ASTRA-sim authors.
 
 ---
 
-## 9. Acknowledgements
+## 8. Acknowledgements
 
 This project builds on the following open-source components:
 
